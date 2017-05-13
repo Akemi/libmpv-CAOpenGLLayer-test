@@ -32,6 +32,7 @@ static inline void check_error(int status)
     mpv_opengl_cb_context* mpv_cb_ctx;
     BOOL inLiveResize;
     NSSize surfaceSize;
+    CVDisplayLinkRef link;
 }
 @property(nonatomic, assign) dispatch_queue_t queue;
 @end
@@ -41,19 +42,21 @@ static inline void check_error(int status)
 - (id)init
 {
     if (self = [super init]) {
-        [self setAsynchronous:YES];
+        //[self setAsynchronous:YES];
+        // XXX : need to sync with render/updateCallback on playback
+        //[self setNeedsDisplayOnBoundsChange:YES];
         [self setAutoresizingMask:kCALayerWidthSizable|kCALayerHeightSizable];
         [self setBackgroundColor:[NSColor blackColor].CGColor];
     }
     return self;
 }
 
-// XXX: not used atm
 static void updateCallback(void* ctx)
 {
     VideoLayer* videoLayer = (__bridge VideoLayer*)ctx;
     dispatch_async(videoLayer.queue, ^{
-
+        if (![videoLayer isAsynchronous])
+            [videoLayer display];
     });
 
 }
@@ -127,10 +130,6 @@ static void updateCallback(void* ctx)
     }
 
     CGLFlushDrawable(ctx);
-
-    if (mpv_cb_ctx) {
-        mpv_opengl_cb_report_flip(mpv_cb_ctx, 0);
-    }
 }
 
 - (CGLPixelFormatObj)copyCGLPixelFormatForDisplayMask:(uint32_t)mask
@@ -163,6 +162,7 @@ static void updateCallback(void* ctx)
     CGLSetCurrentContext(ctx);
 
     [self initMPV];
+    [self initDisplaylink];
     return ctx;
 }
 
@@ -172,13 +172,45 @@ static void updateCallback(void* ctx)
     [CATransaction flush];
 }
 
+static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeStamp* now,
+                                    const CVTimeStamp* outputTime, CVOptionFlags flagsIn,
+                                    CVOptionFlags* flagsOut, void* displayLinkContext)
+{
+    struct mpv_opengl_cb_context* ctx = displayLinkContext;
+
+    if (ctx)
+        mpv_opengl_cb_report_flip(ctx, 0);
+
+    return kCVReturnSuccess;
+}
+
+- (void)initDisplaylink
+{
+    NSDictionary* sinfo = [[NSScreen mainScreen] deviceDescription];
+    CGDirectDisplayID display_id = [[sinfo objectForKey:@"NSScreenNumber"] longValue];
+
+    CVDisplayLinkCreateWithCGDisplay(display_id, &link);
+    CVDisplayLinkSetOutputCallback(link, &displayLinkCallback, mpv_cb_ctx);
+    CVDisplayLinkStart(link);
+}
+
+- (void)uninitDisplaylink
+{
+    if (CVDisplayLinkIsRunning(link))
+        CVDisplayLinkStop(link);
+    CVDisplayLinkRelease(link);
+}
+
 - (void)isInLiveResize:(BOOL)live
 {
     inLiveResize = live;
     if (!inLiveResize) {
+        [self setAsynchronous:NO];
         dispatch_async(self.queue, ^{
             [self display];
         });
+    } else {
+        [self setAsynchronous:YES];
     }
 }
 

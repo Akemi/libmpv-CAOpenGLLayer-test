@@ -110,6 +110,12 @@ static void updateCallback(void* ctx)
     });
 }
 
+- (void)uninitMPV
+{
+    const char* cmd[] = { "quit", NULL };
+    check_error(mpv_command(mpv, cmd));
+}
+
 - (BOOL)canDrawInCGLContext:(CGLContextObj)ctx pixelFormat:(CGLPixelFormatObj)pf
         forLayerTime:(CFTimeInterval)t displayTime:(const CVTimeStamp *)ts
 {
@@ -401,6 +407,17 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
     [sm addItemWithTitle:@"Quit" action:@selector(terminate:) keyEquivalent:@"q"];
     [NSApp setMenu:m];
     [NSApp activateIgnoringOtherApps:YES];
+}
+
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender
+{
+    [vlayer uninitMPV];
+    return NSTerminateNow;
+}
+
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)app
+{
+    return YES;
 }
 
 - (void)fullscreen

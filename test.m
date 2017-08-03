@@ -101,6 +101,8 @@ static void updateCallback(void* ctx)
     }
     mpv_opengl_cb_set_update_callback(mpv_cb_ctx, updateCallback, (__bridge void*)self);
 
+    mpv_set_wakeup_callback(mpv, wakeup, (__bridge void *)self);
+
     self.queue = dispatch_queue_create("io.mpv.callbackQueue", DISPATCH_QUEUE_SERIAL);
     dispatch_async(self.queue, ^{
         const char* cmd[] = { "loadfile", filename.UTF8String, NULL };
@@ -172,6 +174,45 @@ static void updateCallback(void* ctx)
     [CATransaction flush];
 }
 
+- (void) readEvents
+{
+    dispatch_async(dispatch_get_main_queue(), ^{
+        while (mpv) {
+            mpv_event *event = mpv_wait_event(mpv, 0);
+            if (event->event_id == MPV_EVENT_NONE)
+                break;
+            [self handleEvent:event];
+        }
+    });
+}
+
+static void wakeup(void *context)
+{
+    VideoLayer *vlayer = (__bridge VideoLayer *) context;
+    [vlayer readEvents];
+}
+
+- (void) handleEvent:(mpv_event *)event
+{
+    switch (event->event_id) {
+    case MPV_EVENT_SHUTDOWN: {
+        mpv_detach_destroy(mpv);
+        mpv_opengl_cb_uninit_gl(mpv_cb_ctx);
+        mpv = NULL;
+        printf("event: shutdown\n");
+        break;
+    }
+
+    case MPV_EVENT_LOG_MESSAGE: {
+        struct mpv_event_log_message *msg = (struct mpv_event_log_message *)event->data;
+        printf("[%s] %s: %s", msg->prefix, msg->level, msg->text);
+    }
+
+    default:
+        printf("event: %s\n", mpv_event_name(event->event_id));
+    }
+}
+
 static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeStamp* now,
                                     const CVTimeStamp* outputTime, CVOptionFlags flagsIn,
                                     CVOptionFlags* flagsOut, void* displayLinkContext)
@@ -216,9 +257,6 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 
 @end
 
-
-
-
 @interface VideoView : NSView
 @end
 
@@ -233,9 +271,6 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
     return self;
 }
 @end
-
-
-
 
 @interface VideoWindow : NSWindow <NSWindowDelegate> {
     NSRect windowFrame;
@@ -286,7 +321,6 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 - (void)window:(NSWindow *)window startCustomAnimationToEnterFullScreenWithDuration:(NSTimeInterval)duration
 {
     windowFrame = [self convertRectToScreen:[[self contentView] frame]];
-    [window setStyleMask:([window styleMask] & ~NSWindowStyleMaskFullScreen)];
     [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
         [context setDuration:duration*0.9];
         [[window animator] setFrame:[self screen].frame display:YES];
@@ -324,12 +358,7 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 }
 @end
 
-
-
-
-
 @interface AppDelegate : NSObject <NSApplicationDelegate> {
-    mpv_handle* mpv;
     VideoWindow* vwindow;
     VideoView* vview;
     VideoLayer* vlayer;
@@ -368,8 +397,8 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
     NSMenuItem* item = [m addItemWithTitle:@"Apple" action:nil keyEquivalent:@""];
     NSMenu* sm = [[NSMenu alloc] initWithTitle:@"Apple"];
     [m setSubmenu:sm forItem:item];
-    [sm addItemWithTitle:@"fullscreen" action:@selector(fullscreen) keyEquivalent:@"f"];
-    [sm addItemWithTitle:@"quit" action:@selector(terminate:) keyEquivalent:@"q"];
+    [sm addItemWithTitle:@"Fullscreen" action:@selector(fullscreen) keyEquivalent:@"f"];
+    [sm addItemWithTitle:@"Quit" action:@selector(terminate:) keyEquivalent:@"q"];
     [NSApp setMenu:m];
     [NSApp activateIgnoringOtherApps:YES];
 }

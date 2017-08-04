@@ -47,8 +47,73 @@ static inline void check_error(int status)
         //[self setNeedsDisplayOnBoundsChange:YES];
         [self setAutoresizingMask:kCALayerWidthSizable|kCALayerHeightSizable];
         [self setBackgroundColor:[NSColor blackColor].CGColor];
+        inLiveResize = NO;
     }
     return self;
+}
+
+- (BOOL)canDrawInCGLContext:(CGLContextObj)ctx pixelFormat:(CGLPixelFormatObj)pf
+        forLayerTime:(CFTimeInterval)t displayTime:(const CVTimeStamp *)ts
+{
+    return YES;
+}
+
+- (void)drawInCGLContext:(CGLContextObj)ctx pixelFormat:(CGLPixelFormatObj)pf
+        forLayerTime:(CFTimeInterval)t displayTime:(const CVTimeStamp *)ts
+{
+    GLint i = 0;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &i);
+
+    if (mpv_cb_ctx) {
+        if (!inLiveResize)
+            surfaceSize = self.bounds.size;
+        mpv_opengl_cb_draw(mpv_cb_ctx, i, surfaceSize.width, -surfaceSize.height);
+    } else {
+        glClearColor( 0.0, 0.0, 0.0, 1.0 );
+        glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+    }
+
+    CGLFlushDrawable(ctx);
+}
+
+- (CGLPixelFormatObj)copyCGLPixelFormatForDisplayMask:(uint32_t)mask
+{
+    CGLPixelFormatAttribute attrs[] = {
+        kCGLPFAOpenGLProfile, (CGLPixelFormatAttribute) kCGLOGLPVersion_3_2_Core,
+        kCGLPFADoubleBuffer,
+        kCGLPFAAllowOfflineRenderers,
+        kCGLPFABackingStore,
+        kCGLPFAAccelerated,
+        kCGLPFASupportsAutomaticGraphicsSwitching,
+        0
+    };
+
+    GLint npix;
+    CGLPixelFormatObj pix;
+    CGLChoosePixelFormat(attrs, &pix, &npix);
+
+    return pix;
+}
+
+- (CGLContextObj)copyCGLContextForPixelFormat:(CGLPixelFormatObj)pf
+{
+    CGLContextObj ctx = [super copyCGLContextForPixelFormat:pf];
+
+    GLint i = 1;
+    CGLSetParameter(ctx, kCGLCPSwapInterval, &i);
+    CGLEnable(ctx, kCGLCEMPEngine);
+    CGLSetCurrentContext(ctx);
+
+    [self initMPV];
+    [self initDisplaylink];
+
+    return ctx;
+}
+
+- (void)display
+{
+    [super display];
+    [CATransaction flush];
 }
 
 static void updateCallback(void* ctx)
@@ -99,6 +164,7 @@ static void updateCallback(void* ctx)
         printf("gl init has failed.\n");
         exit(1);
     }
+
     mpv_opengl_cb_set_update_callback(mpv_cb_ctx, updateCallback, (__bridge void*)self);
 
     mpv_set_wakeup_callback(mpv, wakeup, (__bridge void *)self);
@@ -116,68 +182,10 @@ static void updateCallback(void* ctx)
     check_error(mpv_command(mpv, cmd));
 }
 
-- (BOOL)canDrawInCGLContext:(CGLContextObj)ctx pixelFormat:(CGLPixelFormatObj)pf
-        forLayerTime:(CFTimeInterval)t displayTime:(const CVTimeStamp *)ts
+static void wakeup(void *context)
 {
-    return YES;
-}
-
-- (void)drawInCGLContext:(CGLContextObj)ctx pixelFormat:(CGLPixelFormatObj)pf
-        forLayerTime:(CFTimeInterval)t displayTime:(const CVTimeStamp *)ts
-{
-    GLint i = 0;
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &i);
-
-    if (mpv_cb_ctx) {
-        if (!inLiveResize)
-            surfaceSize = self.bounds.size;
-        mpv_opengl_cb_draw(mpv_cb_ctx, i, surfaceSize.width, -surfaceSize.height);
-    } else {
-        glClearColor( 0.0, 0.0, 0.0, 1.0 );
-        glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
-    }
-
-    CGLFlushDrawable(ctx);
-}
-
-- (CGLPixelFormatObj)copyCGLPixelFormatForDisplayMask:(uint32_t)mask
-{
-    CGLPixelFormatAttribute attrs[] = {
-        kCGLPFAOpenGLProfile, (CGLPixelFormatAttribute) kCGLOGLPVersion_3_2_Core,
-        kCGLPFADoubleBuffer,
-        kCGLPFAAllowOfflineRenderers,
-        kCGLPFABackingStore,
-        kCGLPFAAccelerated,
-        kCGLPFASupportsAutomaticGraphicsSwitching,
-        0
-    };
-
-    GLint npix;
-    CGLError err;
-    CGLPixelFormatObj pix;
-    err = CGLChoosePixelFormat(attrs, &pix, &npix);
-
-    return pix;
-}
-
-- (CGLContextObj)copyCGLContextForPixelFormat:(CGLPixelFormatObj)pf
-{
-    CGLContextObj ctx = [super copyCGLContextForPixelFormat:pf];
-
-    GLint i = 1;
-    CGLSetParameter(ctx, kCGLCPSwapInterval, &i);
-    CGLEnable(ctx, kCGLCEMPEngine);
-    CGLSetCurrentContext(ctx);
-
-    [self initMPV];
-    [self initDisplaylink];
-    return ctx;
-}
-
-- (void)display
-{
-    [super display];
-    [CATransaction flush];
+    VideoLayer *vlayer = (__bridge VideoLayer *) context;
+    [vlayer readEvents];
 }
 
 - (void) readEvents
@@ -192,12 +200,6 @@ static void updateCallback(void* ctx)
     });
 }
 
-static void wakeup(void *context)
-{
-    VideoLayer *vlayer = (__bridge VideoLayer *) context;
-    [vlayer readEvents];
-}
-
 - (void) handleEvent:(mpv_event *)event
 {
     switch (event->event_id) {
@@ -209,12 +211,10 @@ static void wakeup(void *context)
         [NSApp terminate:self];
         break;
     }
-
     case MPV_EVENT_LOG_MESSAGE: {
         struct mpv_event_log_message *msg = (struct mpv_event_log_message *)event->data;
         printf("[%s] %s: %s", msg->prefix, msg->level, msg->text);
     }
-
     default:
         printf("event: %s\n", mpv_event_name(event->event_id));
     }
@@ -286,8 +286,6 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 @end
 
 @implementation VideoWindow
-- (BOOL)canBecomeMainWindow { return YES; }
-- (BOOL)canBecomeKeyWindow { return YES; }
 
 - (id)initWithContentRect:(NSRect)contentRect
                 styleMask:(NSWindowStyleMask)style
@@ -298,8 +296,8 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
                                 styleMask:style
                                   backing:bufferingType
                                     defer:flag]) {
-        [self setMinSize:NSMakeSize(200, 200)];
         [self setTitle:@"test"];
+        [self setMinSize:NSMakeSize(200, 200)];
         [self makeMainWindow];
         [self makeKeyAndOrderFront:nil];
         self.delegate = self;
@@ -310,9 +308,22 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
     return self;
 }
 
+- (BOOL)canBecomeMainWindow { return YES; }
+- (BOOL)canBecomeKeyWindow { return YES; }
+
 - (void)setLayer:(VideoLayer *)videoLayer
 {
     vlayer = videoLayer;
+}
+
+- (void)windowWillStartLiveResize:(NSNotification *)notification
+{
+    [vlayer isInLiveResize:YES];
+}
+
+- (void)windowDidEndLiveResize:(NSNotification *)notification
+{
+    [vlayer isInLiveResize:NO];
 }
 
 - (NSArray *)customWindowsToEnterFullScreenForWindow:(NSWindow *)window
@@ -343,26 +354,16 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
     }];
 }
 
-- (void)windowDidEnterFullScreen:(NSNotification *)notification { }
+- (void)windowDidEnterFullScreen:(NSNotification *)notification {}
 
 - (void)windowDidExitFullScreen:(NSNotification *)notification
 {
     [self setContentAspectRatio:windowFrame.size];
 }
 
-- (void)windowDidFailToEnterFullScreen:(NSWindow *)window { }
+- (void)windowDidFailToEnterFullScreen:(NSWindow *)window {}
 
-- (void)windowDidFailToExitFullScreen:(NSWindow *)window { }
-
-- (void)windowWillStartLiveResize:(NSNotification *)notification
-{
-    [vlayer isInLiveResize:YES];
-}
-
-- (void)windowDidEndLiveResize:(NSNotification *)notification
-{
-    [vlayer isInLiveResize:NO];
-}
+- (void)windowDidFailToExitFullScreen:(NSWindow *)window {}
 
 - (BOOL)windowShouldClose:(NSWindow *)sender
 {
@@ -388,7 +389,6 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
         [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
     });
 
-
     int mask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
 
@@ -404,16 +404,10 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
     vlayer = [[VideoLayer alloc] init];
     [vview setLayer:vlayer];
     vview.wantsLayer = YES;
-
     [vwindow setLayer:vlayer];
 
-    NSMenu* m = [[NSMenu alloc] initWithTitle:@"AMainMenu"];
-    NSMenuItem* item = [m addItemWithTitle:@"Apple" action:nil keyEquivalent:@""];
-    NSMenu* sm = [[NSMenu alloc] initWithTitle:@"Apple"];
-    [m setSubmenu:sm forItem:item];
-    [sm addItemWithTitle:@"Fullscreen" action:@selector(fullscreen) keyEquivalent:@"f"];
-    [sm addItemWithTitle:@"Quit" action:@selector(terminate:) keyEquivalent:@"q"];
-    [NSApp setMenu:m];
+    [NSApp setMenu:[self mainMenu]];
+
     [NSApp activateIgnoringOtherApps:YES];
 }
 
@@ -429,6 +423,19 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)app
 {
     return YES;
+}
+
+- (NSMenu *)mainMenu
+{
+    NSMenu* m = [[NSMenu alloc] initWithTitle:@"AMainMenu"];
+    NSMenuItem* item = [m addItemWithTitle:@"Apple" action:nil keyEquivalent:@""];
+    NSMenu* sm = [[NSMenu alloc] initWithTitle:@"Apple"];
+    [m setSubmenu:sm forItem:item];
+
+    [sm addItemWithTitle:@"Fullscreen" action:@selector(fullscreen) keyEquivalent:@"f"];
+    [sm addItemWithTitle:@"Quit" action:@selector(quit) keyEquivalent:@"q"];
+
+    return m;
 }
 
 - (void)quit

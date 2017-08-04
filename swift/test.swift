@@ -126,7 +126,6 @@ class VideoLayer: CAOpenGLLayer {
 
     func initMPV() {
         let args = CommandLine.arguments
-
         if (args.count < 2) {
             print("Expected filename on command line")
             exit(1)
@@ -384,5 +383,4 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 let app = NSApplication.shared()
 let delegate = AppDelegate()
 app.delegate = delegate
-
 app.run()

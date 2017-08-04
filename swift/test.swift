@@ -199,8 +199,11 @@ class VideoLayer: CAOpenGLLayer {
     func handleEvent(_ event: UnsafePointer<mpv_event>!) {
         switch event.pointee.event_id {
         case MPV_EVENT_SHUTDOWN:
-            mpv_detach_destroy(mpv)
             mpv_opengl_cb_uninit_gl(mpvGLCBContext)
+            mpvGLCBContext = nil
+            mpv_detach_destroy(mpv)
+            mpv = nil
+            NSApp.terminate(self)
         case MPV_EVENT_LOG_MESSAGE:
             let logmsg = UnsafeMutablePointer<mpv_event_log_message>(OpaquePointer(event.pointee.data))
             print("log:", String(cString: (logmsg!.pointee.prefix)!),
@@ -318,7 +321,7 @@ class VideoWindow: NSWindow, NSWindowDelegate {
     func windowDidFailToExitFullScreen(_ window: NSWindow) {}
 
     func windowShouldClose(_ sender: Any) -> Bool {
-        NSApp.terminate(self)
+        vlayer!.uninitMPV()
         return false
     }
 }
@@ -350,9 +353,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps:true)
     }
 
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplicationTerminateReply {
-        vlayer!.uninitMPV()
-        return .terminateNow;
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(self,
+            andSelector: #selector(quitMPV),
+            forEventClass: AEEventClass(kCoreEventClass),
+            andEventID: AEEventID(kAEQuitApplication))
     }
 
     func applicationShouldTerminateAfterLastWindowClosed() -> Bool {
@@ -366,9 +371,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         main.setSubmenu(menu, for: item)
 
         menu.addItem(withTitle:"Fullscreen", action:#selector(vwindow!.toggleFullScreen), keyEquivalent:"f")
-        menu.addItem(withTitle:"Quit", action:#selector(NSApp.terminate(_:)), keyEquivalent:"q")
+        menu.addItem(withTitle:"Quit", action:#selector(quitMPV), keyEquivalent:"q")
 
         return main
+    }
+
+    func quitMPV() {
+        vlayer!.uninitMPV()
     }
 }
 

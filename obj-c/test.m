@@ -202,10 +202,11 @@ static void wakeup(void *context)
 {
     switch (event->event_id) {
     case MPV_EVENT_SHUTDOWN: {
-        mpv_detach_destroy(mpv);
         mpv_opengl_cb_uninit_gl(mpv_cb_ctx);
+        mpv_cb_ctx = NULL;
+        mpv_detach_destroy(mpv);
         mpv = NULL;
-        printf("event: shutdown\n");
+        [NSApp terminate:self];
         break;
     }
 
@@ -362,6 +363,13 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 {
     [vlayer isInLiveResize:NO];
 }
+
+- (BOOL)windowShouldClose:(NSWindow *)sender
+{
+    [vlayer uninitMPV];
+    return false;
+}
+
 @end
 
 @interface AppDelegate : NSObject <NSApplicationDelegate> {
@@ -409,15 +417,23 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
     [NSApp activateIgnoringOtherApps:YES];
 }
 
-- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender
+- (void)applicationWillFinishLaunching:(NSNotification *)notification
 {
-    [vlayer uninitMPV];
-    return NSTerminateNow;
+    NSAppleEventManager *em = [NSAppleEventManager sharedAppleEventManager];
+    [em setEventHandler:self
+            andSelector:@selector(quit)
+          forEventClass:kCoreEventClass
+             andEventID:kAEQuitApplication];
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)app
 {
     return YES;
+}
+
+- (void)quit
+{
+    [vlayer uninitMPV];
 }
 
 - (void)fullscreen

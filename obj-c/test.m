@@ -9,11 +9,11 @@
 #import <QuartzCore/QuartzCore.h>
 
 
-static void* get_proc_address(void* ctx, const char* name)
+static void *get_proc_address(void *ctx, const char *name)
 {
     CFStringRef symbol = CFStringCreateWithCString(
         kCFAllocatorDefault, name, kCFStringEncodingASCII);
-    void* addr = CFBundleGetFunctionPointerForName(
+    void *addr = CFBundleGetFunctionPointerForName(
         CFBundleGetBundleWithIdentifier(CFSTR("com.apple.opengl")), symbol);
     CFRelease(symbol);
     return addr;
@@ -28,8 +28,8 @@ static inline void check_error(int status)
 }
 
 @interface VideoLayer : CAOpenGLLayer {
-    mpv_handle* mpv;
-    mpv_opengl_cb_context* mpv_cb_ctx;
+    mpv_handle *mpv;
+    mpv_opengl_cb_context *mpv_cb_ctx;
     BOOL inLiveResize;
     NSSize surfaceSize;
     CVDisplayLinkRef link;
@@ -116,9 +116,9 @@ static inline void check_error(int status)
     [CATransaction flush];
 }
 
-static void updateCallback(void* ctx)
+static void updateCallback(void *ctx)
 {
-    VideoLayer* videoLayer = (__bridge VideoLayer*)ctx;
+    VideoLayer *videoLayer = (__bridge VideoLayer*)ctx;
     dispatch_async(videoLayer.queue, ^{
         if (![videoLayer isAsynchronous])
             [videoLayer display];
@@ -128,12 +128,12 @@ static void updateCallback(void* ctx)
 
 - (void)initMPV
 {
-    NSArray* args = [NSProcessInfo processInfo].arguments;
+    NSArray *args = [NSProcessInfo processInfo].arguments;
     if (args.count < 2) {
         NSLog(@"Expected filename on command line");
         exit(1);
     }
-    NSString* filename = args[1];
+    NSString *filename = args[1];
 
     mpv = mpv_create();
     if (!mpv) {
@@ -171,14 +171,14 @@ static void updateCallback(void* ctx)
 
     self.queue = dispatch_queue_create("io.mpv.callbackQueue", DISPATCH_QUEUE_SERIAL);
     dispatch_async(self.queue, ^{
-        const char* cmd[] = { "loadfile", filename.UTF8String, NULL };
+        const char *cmd[] = { "loadfile", filename.UTF8String, NULL };
         check_error(mpv_command(mpv, cmd));
     });
 }
 
 - (void)uninitMPV
 {
-    const char* cmd[] = { "quit", NULL };
+    const char *cmd[] = { "quit", NULL };
     check_error(mpv_command(mpv, cmd));
 }
 
@@ -220,11 +220,11 @@ static void wakeup(void *context)
     }
 }
 
-static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeStamp* now,
-                                    const CVTimeStamp* outputTime, CVOptionFlags flagsIn,
-                                    CVOptionFlags* flagsOut, void* displayLinkContext)
+static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeStamp *now,
+                                    const CVTimeStamp *outputTime, CVOptionFlags flagsIn,
+                                    CVOptionFlags *flagsOut, void *displayLinkContext)
 {
-    struct mpv_opengl_cb_context* ctx = displayLinkContext;
+    struct mpv_opengl_cb_context *ctx = displayLinkContext;
 
     if (ctx)
         mpv_opengl_cb_report_flip(ctx, 0);
@@ -234,7 +234,7 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 
 - (void)initDisplaylink
 {
-    NSDictionary* sinfo = [[NSScreen mainScreen] deviceDescription];
+    NSDictionary *sinfo = [[NSScreen mainScreen] deviceDescription];
     CGDirectDisplayID display_id = [[sinfo objectForKey:@"NSScreenNumber"] longValue];
 
     CVDisplayLinkCreateWithCGDisplay(display_id, &link);
@@ -281,7 +281,7 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 
 @interface VideoWindow : NSWindow <NSWindowDelegate> {
     NSRect windowFrame;
-    VideoLayer* vlayer;
+    VideoLayer *vlayer;
 }
 @end
 
@@ -374,9 +374,9 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 @end
 
 @interface AppDelegate : NSObject <NSApplicationDelegate> {
-    VideoWindow* vwindow;
-    VideoView* vview;
-    VideoLayer* vlayer;
+    VideoWindow *vwindow;
+    VideoView *vview;
+    VideoLayer *vlayer;
 }
 @end
 
@@ -427,9 +427,9 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 
 - (NSMenu *)mainMenu
 {
-    NSMenu* m = [[NSMenu alloc] initWithTitle:@"AMainMenu"];
-    NSMenuItem* item = [m addItemWithTitle:@"Apple" action:nil keyEquivalent:@""];
-    NSMenu* sm = [[NSMenu alloc] initWithTitle:@"Apple"];
+    NSMenu *m = [[NSMenu alloc] initWithTitle:@"AMainMenu"];
+    NSMenuItem *item = [m addItemWithTitle:@"Apple" action:nil keyEquivalent:@""];
+    NSMenu *sm = [[NSMenu alloc] initWithTitle:@"Apple"];
     [m setSubmenu:sm forItem:item];
 
     [sm addItemWithTitle:@"Fullscreen" action:@selector(fullscreen) keyEquivalent:@"f"];
@@ -451,11 +451,11 @@ static CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 @end
 
 
-int main(int argc, const char* argv[])
+int main(int argc, const char *argv[])
 {
     @autoreleasepool {
-        NSApplication* app = [NSApplication sharedApplication];
-        AppDelegate* delegate = [AppDelegate new];
+        NSApplication *app = [NSApplication sharedApplication];
+        AppDelegate *delegate = [AppDelegate new];
         app.delegate = delegate;
         [app run];
     }
